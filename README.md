@@ -25,8 +25,7 @@ This repository focuses on volume-space processing and comparison. Surface mappi
 
 ## Attribution
 
-The original RMT, SSVD, and Rice-VST code identifies Xiaoping Wu and Wei Zhu at the Center for Magnetic Resonance Research, University of Minnesota, as original authors. This repository documents and integrates the tested low-memory serial execution, operator-norm shrinkage configuration, echo-specific caching, BIDS/header repair, fMRIPrep, tedana, and tSNR quality-control workflow. Do not describe this repository as inventing RMT, SSVD, Rice VST, fMRIPrep, or tedana.
-
+The original RMT, SSVD, and Rice-VST code identifies Xiaoping Wu and Wei Zhu at the Center for Magnetic Resonance Research, University of Minnesota, as original authors. This repository documents and integrates the tested low-memory serial execution, operator-norm shrinkage configuration, echo-specific caching, BIDS/header repair, fMRIPrep, tedana, and tSNR quality-control workflow. 
 # 0. Repository layout
 
 ```text
