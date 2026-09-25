@@ -30,40 +30,61 @@ The original RMT, SSVD, and Rice-VST code identifies Xiaoping Wu and Wei Zhu at 
 
 ```text
 RMT-fMRI-MEICA-pipeline/
-|
-|-- README.md
-|-- requirements.txt
-|
-|-- matlab/
-|   |-- fmriDenoising_demo.m
-|   |-- fmriDenoise_SSVD2.m
-|   |-- estimate_noise_vst3.m
-|   |-- perform_riceVST3.m
-|   |-- denoise_ssvd.m
-|   |-- ssvd.m
-|   |-- perform_riceVST_EUI3.m
-|   |-- MCSure.m
-|   `-- dependencies/
-|       |-- riceVST_sigmaEst.m
-|       |-- riceVST.m
-|       |-- riceVST_EUI.m
-|       |-- squish.m
-|       |-- gunziptemp.m
-|       |-- load_untouch_nii.m
-|       |-- make_nii.m
-|       `-- save_nii.m
-|
-|-- scripts/
-|   |-- fix_RMT_header.py
-|   |-- check_fmriprep_echoes.py
-|   |-- check_mask_size.py
-|   |-- compare_masks.py
-|   |-- make_tsnr_fmriprepmask.py
-|   |-- mask_TE2_RMT.py
-|   `-- tsnr_stats_RMT.py
-|
-`-- examples/
-    `-- expected_outputs.txt
+│
+├── README.md
+├── requirements.txt
+│
+├── matlab/
+│ │
+│ ├── fmriDenoising_demo.m
+│ ├── fmriDenoise_SSVD2.m
+│ ├── estimate_noise_vst3.m
+│ ├── perform_riceVST3.m
+│ ├── perform_riceVST_EUI3.m
+│ ├── denoise_ssvd.m
+│ ├── ssvd.m
+│ ├── MCSure.m
+│ │
+│ └── dependencies/
+│ │
+│ ├── VST/
+│ │ ├── Rice_VST_A.mat
+│ │ ├── Rice_VST_B.mat
+│ │ ├── estimate_noise_vst3.m
+│ │ ├── function_stdEst.m
+│ │ ├── perform_riceVST3.m
+│ │ ├── perform_riceVST_EUI3.m
+│ │ ├── riceVST.m
+│ │ ├── riceVST_EUI.m
+│ │ └── riceVST_sigmaEst.m
+│ │
+│ └── nifti/
+│ ├── gunziptemp.m
+│ ├── load_nii_ext.m
+│ ├── load_nii_hdr.m
+│ ├── load_untouch0_nii_hdr.m
+│ ├── load_untouch_nii.m
+│ ├── load_untouch_nii_hdr.m
+│ ├── load_untouch_nii_img.m
+│ ├── make_nii.m
+│ ├── save_nii.m
+│ ├── save_nii_ext.m
+│ ├── save_nii_hdr.m
+│ └── verify_nii_ext.m
+│
+├── scripts/
+│ ├── fix_RMT_header.py
+│ ├── check_fmriprep_echoes.py
+│ ├── compare_masks.py
+│ ├── check_mask_size.py
+│ ├── make_tsnr_fmriprepmask.py
+│ ├── mask_TE2_RMT.py
+│ └── tsnr_stats_RMT.py
+│
+└── output_examples/
+  ├── echo1_RMT_OP.nii
+  ├── echo2_RMT_OP.nii
+  └── echo3_RMT_OP.nii
 ```
 
 Only files used in, or required by, the successful processing path should be placed in the main workflow folders. The unsuccessful MATLAB header-repair script that depended on `save_untouch_nii` is not part of the main workflow.
