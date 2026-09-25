@@ -1,1 +1,6 @@
-
+nibabel==5.3.2
+numpy
+scipy
+nilearn
+scikit-learn
+tedana==25.1.0
