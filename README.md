@@ -625,6 +625,703 @@ vstCacheFile = ...
 % Echo 3:
 % echo3_OPSSVD_cache.mat
 
+ssvdCacheFile = ...
+    'D:\RMT\test result\echo3_OPSSVD_cache.mat';
+```
+
+### Required cache configuration for each echo
+
+#### Echo 1
+
+```matlab
+sigmaCacheFile = ...
+    'D:\RMT\test result\echo1_sigmaVST_cache.mat';
+
+vstCacheFile = ...
+    'D:\RMT\test result\echo1_forwardVST_cache.mat';
+
+ssvdCacheFile = ...
+    'D:\RMT\test result\echo1_OPSSVD_cache.mat';
+```
+
+#### Echo 2
+
+```matlab
+sigmaCacheFile = ...
+    'D:\RMT\test result\echo2_sigmaVST_cache.mat';
+
+vstCacheFile = ...
+    'D:\RMT\test result\echo2_forwardVST_cache.mat';
+
+ssvdCacheFile = ...
+    'D:\RMT\test result\echo2_OPSSVD_cache.mat';
+```
+
+#### Echo 3
+
+```matlab
+sigmaCacheFile = ...
+    'D:\RMT\test result\echo3_sigmaVST_cache.mat';
+
+vstCacheFile = ...
+    'D:\RMT\test result\echo3_forwardVST_cache.mat';
+
+ssvdCacheFile = ...
+    'D:\RMT\test result\echo3_OPSSVD_cache.mat';
+```
+
+Do not reuse one echo's cache files for another echo.
+
+A cache file is loaded only when the corresponding echo and processing parameters have not changed. Delete the appropriate cache file before rerunning a processing stage with changed parameters.
+
+---
+
+### 3.3.3 Run the MATLAB driver
+
+Add the repository MATLAB folders to the MATLAB path.
+
+```matlab
+addpath('D:\YOUR_REPOSITORY\matlab');
+addpath(genpath('D:\YOUR_REPOSITORY\matlab\dependencies'));
+```
+
+Replace:
+
+```text
+D:\YOUR_REPOSITORY
+```
+
+with the local repository path.
+
+Run:
+
+```matlab
+fmriDenoising_demo
+```
+
+Repeat this procedure separately for Echo 1, Echo 2, and Echo 3.
+
+### Expected RMT outputs
+
+```text
+D:\RMT\test result\
+├── echo1_RMT_OP.nii
+├── echo1_sigma.nii
+├── echo1_rank.nii
+├── echo1_sigmaVST.nii
+├── echo2_RMT_OP.nii
+├── echo2_sigma.nii
+├── echo2_rank.nii
+├── echo2_sigmaVST.nii
+├── echo3_RMT_OP.nii
+├── echo3_sigma.nii
+├── echo3_rank.nii
+└── echo3_sigmaVST.nii
+```
+
+The directory may also contain the echo-specific `.mat` cache files.
+
+---
+
+## 3.4 Input loading and deterministic rescaling
+
+### MATLAB file used
+
+```text
+matlab/fmriDenoising_demo.m
+```
+
+Input loading and global rescaling are performed in the driver before `fmriDenoise_SSVD2.m` is called.
+
+```matlab
+nii = load_untouch_nii( ...
+    gunziptemp(epifilenames{p}));
+
+if min(nii.img(:)) < intmin('int16') || ...
+        max(nii.img(:)) > intmax('int16')
+
+    scaleFactor = ceil( ...
+        max(nii.img(:)) / ...
+        double(intmax('int16')));
+
+    epis{p} = nii.img ./ scaleFactor;
+else
+    scaleFactor = 1;
+    epis{p} = nii.img;
+end
+```
+
+### What this step does
+
+If the input range exceeds the signed 16-bit integer range, the complete 4D echo series is divided by one global scale factor.
+
+The same factor is applied to:
+
+```text
+all voxels
+all slices
+all volumes
+```
+
+For voxelwise tSNR:
+
+```text
+tSNR = temporal mean / temporal standard deviation
+```
+
+a uniform global scale factor theoretically cancels between the numerator and denominator.
+
+However, the scale factor should be recorded if the following quantities will be compared across datasets:
+
+```text
+Absolute signal intensity
+S0
+Sigma
+SigmaVST
+Noise-map magnitude
+```
+
+### Values obtained from the input header
+
+The driver also reads:
+
+```matlab
+episize = nii.hdr.dime.pixdim(2:4);
+epidim = nii.hdr.dime.dim(2:5);
+epitr = 2.1;
+```
+
+`episize` is used by `make_nii` when the RMT output is initially written. The complete original NIfTI header is restored later with the Python header-repair script.
+
+---
+
+## 3.5 Spatial Rician-noise estimation
+
+### MATLAB files used
+
+```text
+matlab/fmriDenoise_SSVD2.m
+matlab/estimate_noise_vst3.m
+matlab/dependencies/riceVST_sigmaEst.m
+```
+
+### Function call
+
+Inside `fmriDenoise_SSVD2.m`, the tested workflow calls:
+
+```matlab
+sigmaVST = estimate_noise_vst3( ...
+    epi_noisy, ...
+    ks, ...
+    'B');
+```
+
+The tested noise-estimation kernel is passed from `fmriDenoising_demo.m`:
+
+```matlab
+ks = [7 7 3];
+```
+
+### Important tested configuration
+
+The tested pipeline uses:
+
+```text
+Noise-estimation VST method: B
+Forward Rice VST method:     A
+Inverse Rice VST method:     A
+```
+
+This reflects the actual successful code configuration.
+
+### What `estimate_noise_vst3.m` does
+
+`estimate_noise_vst3.m`:
+
+1. Converts integer input to single precision when necessary.
+2. Reads the 4D dimensions as `[x, y, z, time]`.
+3. Generates overlapping `[7 7 3]` spatial patches with step 1.
+4. Processes one spatial patch at a time.
+5. Calls `riceVST_sigmaEst` for each patch.
+6. Obtains one scalar Rician-noise estimate per patch.
+7. Adds that estimate to every voxel covered by the patch.
+8. Counts the number of patch estimates contributing to each voxel.
+9. Divides the accumulated estimates by the overlap-count map.
+10. Returns the spatial `sigmaVST` map.
+
+### Cache behavior
+
+Before recalculating the noise map, `fmriDenoise_SSVD2.m` checks the echo-specific cache:
+
+```text
+echoN_sigmaVST_cache.mat
+```
+
+If the cache exists, the completed noise map is loaded.
+
+If the cache does not exist, noise estimation runs and the result is saved.
+
+### Output
+
+```text
+sigmaVST
+```
+
+Dimensions:
+
+```text
+[x, y, z]
+```
+
+Saved QC output:
+
+```text
+echoN_sigmaVST.nii
+```
+
+---
+
+## 3.6 Forward Rice variance-stabilizing transformation
+
+### MATLAB files used
+
+```text
+matlab/fmriDenoise_SSVD2.m
+matlab/perform_riceVST3.m
+matlab/dependencies/riceVST.m
+```
+
+### Function call
+
+Inside `fmriDenoise_SSVD2.m`:
+
+```matlab
+imgRaw = perform_riceVST3( ...
+    epi_noisy, ...
+    sigmaVST, ...
+    ks, ...
+    VST_ABC);
+```
+
+For the tested run:
+
+```matlab
+ks = [7 7 3];
+VST_ABC = 'A';
+```
+
+Equivalent tested call:
+
+```matlab
+imgRaw = perform_riceVST3( ...
+    epi_noisy, ...
+    sigmaVST, ...
+    [7 7 3], ...
+    'A');
+```
+
+### What `perform_riceVST3.m` does
+
+`perform_riceVST3.m`:
+
+1. Converts the 4D input to single precision.
+2. Converts the spatial noise map to single precision.
+3. Uses overlapping `[7 7 3]` patches with step 1.
+4. Extracts one 4D patch at a time.
+5. Extracts the corresponding 3D `sigmaVST` patch.
+6. Calculates the mean sigma inside that patch.
+7. Calls `riceVST` using the local mean sigma and VST type A.
+8. Adds the transformed patch into a single-precision 4D accumulator.
+9. Updates a 3D overlap-count map.
+10. Divides the accumulator by the overlap-count map.
+11. Returns the variance-stabilized 4D data.
+
+### Cache behavior
+
+Before rerunning the transform, `fmriDenoise_SSVD2.m` checks:
+
+```text
+echoN_forwardVST_cache.mat
+```
+
+If the cache exists:
+
+```matlab
+cachedVST = load( ...
+    vstCacheFile, ...
+    'imgRaw');
+
+imgRaw = cachedVST.imgRaw;
+```
+
+If the cache does not exist, the forward VST runs and the result is saved.
+
+### Output
+
+```text
+imgRaw
+```
+
+Dimensions:
+
+```text
+[x, y, z, time]
+```
+
+This output remains in the variance-stabilized domain and is passed to OP-SSVD.
+
+---
+
+## 3.7 OP-SSVD RMT denoising
+
+### MATLAB files used
+
+```text
+matlab/fmriDenoise_SSVD2.m
+matlab/denoise_ssvd.m
+matlab/ssvd.m
+matlab/dependencies/squish.m
+```
+
+`MCSure.m` supports an alternative SURE branch in `ssvd.m`, but the successful pipeline documented here uses the `ssvd` multiple-criteria rank/noise estimator rather than the SURE branch.
+
+### Function call from `fmriDenoise_SSVD2.m`
+
+```matlab
+[imgDenoised, rank, sigma] = denoise_ssvd( ...
+    imgRaw, ...
+    ws, ...
+    step, ...
+    wantGaussWeighting, ...
+    wantRankWeighting, ...
+    k0);
+```
+
+For the tested run:
+
+```matlab
+ws = [7 7 3];
+step = 1;
+wantGaussWeighting = 0;
+wantRankWeighting = 1;
+k0 = 1:10;
+```
+
+### Core call inside `denoise_ssvd.m`
+
+For each `[7 7 3] x time` patch:
+
+```matlab
+[Ysp, Rp, Sigmap] = ssvd( ...
+    double(B1), ...
+    'op', ...
+    'ssvd', ...
+    1:10);
+```
+
+This combines:
+
+```text
+Rank/noise estimation:
+multiple-criteria SSVD
+
+Singular-value operation:
+operator-norm optimal shrinkage
+
+Moment orders:
+1:10
+```
+
+### What `denoise_ssvd.m` does
+
+`denoise_ssvd.m`:
+
+1. Reads the spatial patch size.
+2. Uses a spatial step of 1.
+3. Generates border-complete overlapping patch positions.
+4. Extracts one `[7 7 3] x time` patch.
+5. Passes the patch to `ssvd.m`.
+6. Obtains:
+   - the reconstructed patch `Ysp`
+   - the estimated patch rank `Rp`
+   - the estimated patch noise `Sigmap`
+7. Calculates the whole-patch weight.
+8. Adds the weighted reconstructed patch to the output accumulator.
+9. Adds the same patch weight to the denominator.
+10. Stores patch rank and noise values at the patch starting coordinate.
+11. Divides the weighted output by the accumulated positive weights.
+12. Returns the denoised VST-domain 4D image.
+
+### Tested patch weighting
+
+```matlab
+patchScalarWeight = 1 / (1 + Rp);
+```
+
+The same weight is used for every voxel inside the reconstructed patch.
+
+Higher-rank patches receive lower overlap-aggregation weight.
+
+### Weighting clarification
+
+In the successful OP implementation:
+
+```text
+Gaussian weighting is disabled.
+Whole-patch 1/(1+R) weighting is always used.
+```
+
+The variables:
+
+```matlab
+wantGaussWeighting
+wantRankWeighting
+```
+
+remain in the function signature for compatibility with the original wrapper.
+
+They do not override the OP aggregation rule in the current `denoise_ssvd.m`.
+
+### Cache behavior
+
+Before rerunning OP-SSVD, `fmriDenoise_SSVD2.m` checks:
+
+```text
+echoN_OPSSVD_cache.mat
+```
+
+The cache stores:
+
+```matlab
+imgDenoised
+rank
+sigma
+```
+
+If the cache exists, these completed results are loaded.
+
+If the cache does not exist, OP-SSVD runs and saves the results.
+
+### Outputs
+
+```text
+imgDenoised
+    denoised 4D data in the VST domain
+
+rank
+    patch ranks stored at patch starting positions
+
+sigma
+    patch noise estimates stored at patch starting positions
+```
+
+---
+
+## 3.8 Exact unbiased inverse Rice VST
+
+### MATLAB files used
+
+```text
+matlab/fmriDenoise_SSVD2.m
+matlab/perform_riceVST_EUI3.m
+matlab/dependencies/riceVST_EUI.m
+```
+
+### Function call
+
+After OP-SSVD, `fmriDenoise_SSVD2.m` executes:
+
+```matlab
+if wantVST
+    imgDenoised = perform_riceVST_EUI3( ...
+        imgDenoised, ...
+        sigmaVST, ...
+        ks, ...
+        VST_ABC);
+end
+```
+
+For the tested run:
+
+```matlab
+wantVST = 1;
+ks = [7 7 3];
+VST_ABC = 'A';
+```
+
+Equivalent tested call:
+
+```matlab
+imgDenoised = perform_riceVST_EUI3( ...
+    imgDenoised, ...
+    sigmaVST, ...
+    [7 7 3], ...
+    'A');
+```
+
+### What `perform_riceVST_EUI3.m` does
+
+`perform_riceVST_EUI3.m`:
+
+1. Converts the denoised VST-domain image to single precision.
+2. Converts the spatial sigma map to single precision.
+3. Uses overlapping `[7 7 3]` patches with step 1.
+4. Extracts one denoised 4D patch.
+5. Extracts the corresponding 3D sigma patch.
+6. Calculates the local mean sigma.
+7. Calls `riceVST_EUI`.
+8. Adds the inverse-transformed patch to the output accumulator.
+9. Updates the overlap-count map.
+10. Averages overlapping inverse estimates.
+11. Checks for NaN or Inf values.
+12. Sets negative magnitude values to zero.
+
+### Output
+
+The final `imgDenoised` returned by `fmriDenoise_SSVD2.m` is a nonnegative magnitude-domain 4D image.
+
+Dimensions:
+
+```text
+[x, y, z, time]
+```
+
+This final output is written by `fmriDenoising_demo.m` as:
+
+```text
+echoN_RMT_OP.nii
+```
+
+---
+
+## 3.9 RMT output files and validation
+
+### MATLAB file that writes the outputs
+
+```text
+matlab/fmriDenoising_demo.m
+```
+
+### MATLAB files that generate the output values
+
+```text
+matlab/fmriDenoise_SSVD2.m
+matlab/estimate_noise_vst3.m
+matlab/perform_riceVST3.m
+matlab/denoise_ssvd.m
+matlab/ssvd.m
+matlab/perform_riceVST_EUI3.m
+```
+
+### Final files for each echo
+
+```text
+echoN_RMT_OP.nii
+```
+
+Final denoised magnitude-domain 4D time series.
+
+```text
+echoN_sigma.nii
+```
+
+Patch-level OP-SSVD noise estimates stored at patch-start coordinates.
+
+```text
+echoN_rank.nii
+```
+
+Patch-level estimated ranks stored at patch-start coordinates.
+
+```text
+echoN_sigmaVST.nii
+```
+
+Spatial Rician-noise map used for the forward and inverse VST stages.
+
+### Important interpretation note
+
+`echoN_rank.nii` and `echoN_sigma.nii` are not dense, independently estimated voxelwise maps.
+
+In the tested implementation:
+
+```matlab
+R(i, j, k) = Rp;
+S(i, j, k) = Sigmap;
+```
+
+The rank and OP-SSVD noise values are stored only at each patch starting position.
+
+The `sigmaVST` output differs from those two files. `sigmaVST` is generated by overlap-averaging all contributing spatial noise estimates and therefore forms a spatially aggregated noise map.
+
+### Basic MATLAB validation
+
+After completing each echo, run:
+
+```matlab
+nii = load_untouch_nii( ...
+    'D:\RMT\test result\echo3_RMT_OP.nii');
+
+disp(size(nii.img));
+disp(class(nii.img));
+disp(min(nii.img(:)));
+disp(max(nii.img(:)));
+```
+
+Replace:
+
+```text
+echo3_RMT_OP.nii
+```
+
+with the echo being checked.
+
+Expected tested shape:
+
+```text
+100   102   84   300
+```
+
+Check all three echoes:
+
+```matlab
+files = {
+    'D:\RMT\test result\echo1_RMT_OP.nii'
+    'D:\RMT\test result\echo2_RMT_OP.nii'
+    'D:\RMT\test result\echo3_RMT_OP.nii'
+};
+
+for i = 1:numel(files)
+    nii = load_untouch_nii(files{i});
+
+    fprintf('\n%s\n', files{i});
+    fprintf('Size: ');
+    disp(size(nii.img));
+
+    fprintf('Minimum: %g\n', ...
+        double(min(nii.img(:))));
+
+    fprintf('Maximum: %g\n', ...
+        double(max(nii.img(:))));
+
+    assert( ...
+        ndims(nii.img) == 4, ...
+        'The RMT output is not a 4D image.');
+
+    assert( ...
+        all(isfinite(double(nii.img(:)))), ...
+        'The RMT output contains NaN or Inf values.');
+
+    assert( ...
+        min(nii.img(:)) >= 0, ...
+        'The magnitude RMT output contains negative values.');
+end
+```
+
+At this point, the image data have been successfully denoised, but the NIfTI header created by `make_nii` is not yet suitable for BIDS/fMRIPrep.
+
+Do not send these files directly to fMRIPrep until the original functional NIfTI header has been restored using the Python procedure in the next section.
+
 # 4. Restore the NIfTI header
 
 ## 4.1 Why header restoration is required
