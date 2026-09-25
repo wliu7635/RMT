@@ -1622,6 +1622,219 @@ This is a dataset-specific QC observation, not a universal expected result. Teda
 
 For reproducible Raw-versus-RMT comparisons, use the same mask strategy in both branches, ideally supplying each branch's corresponding fMRIPrep BOLD brain mask.
 
+### 7.3.1 Script: compare_masks.py
+
+**Purpose**
+
+Compare the adaptive-mask coverage between:
+
+```text
+Raw tedana
+
+vs
+
+RMT tedana
+```
+
+This script was used to diagnose the initial voxel-dropoff problem observed after RMT.
+
+**File**
+
+```text
+scripts/compare_masks.py
+```
+
+Replace:
+
+```text
+㉓ Raw tedana output directory
+
+㉔ Initial RMT tedana output directory
+```
+
+```python
+import nibabel as nib
+
+# ㉓ Raw tedana adaptive mask
+
+old_mask = nib.load(
+r"D:\MEICA\MECIA-derivatives_nofs\tedana\sub-01_task-rest\sub-01_task-rest_desc-adaptiveGoodSignal_mask.nii.gz"
+).get_fdata()
+
+# ㉔ Initial RMT tedana adaptive mask
+
+new_mask = nib.load(
+r"D:\RMT\tedana\sub-01_rest_desc-adaptiveGoodSignal_mask.nii.gz"
+).get_fdata()
+
+print(
+    "OLD mask voxels =",
+    (old_mask > 0).sum()
+)
+
+print(
+    "NEW mask voxels =",
+    (new_mask > 0).sum()
+)
+```
+
+Run from Windows CMD:
+
+```cmd
+python scripts\compare_masks.py
+```
+
+**Tested result**
+
+```text
+OLD mask voxels = 246372
+
+NEW mask voxels = 206166
+```
+
+This showed a loss of:
+
+```text
+40206 voxels
+```
+
+relative to the Raw tedana adaptive mask. 【1-ec53f8】
+
+---
+
+### 7.3.2 Script: check_mask_size.py
+
+**Purpose**
+
+Evaluate the final adaptive-mask size after rerunning tedana with:
+
+```text
+--mask sub-01_task-rest_desc-brain_mask.nii.gz
+```
+
+This script verifies whether supplying the fMRIPrep brain mask improves voxel coverage.
+
+**File**
+
+```text
+scripts/check_mask_size.py
+```
+
+Replace:
+
+```text
+㉕ Final masked tedana adaptive mask
+```
+
+```python
+import nibabel as nib
+
+m = nib.load(
+r"D:\RMT\tedana_fmriprepmask\sub-01_rest_desc-adaptiveGoodSignal_mask.nii.gz"
+).get_fdata()
+
+print(
+    "voxels =",
+    (m > 0).sum()
+)
+```
+
+Run from Windows CMD:
+
+```cmd
+python scripts\check_mask_size.py
+```
+
+**Tested result**
+
+```text
+voxels = 238262
+```
+
+【2-b13940】
+
+---
+
+### 7.3.3 Interpretation
+
+Observed adaptive-mask voxel counts:
+
+```text
+Raw adaptive mask:
+246372 voxels
+
+RMT default adaptive mask:
+206166 voxels
+
+RMT + fMRIPrep brain mask:
+238262 voxels
+```
+
+Using the explicit fMRIPrep brain mask restored:
+
+```text
+32096 voxels
+```
+
+relative to the default RMT tedana run.
+
+The initial voxel loss was:
+
+```text
+40206 voxels
+```
+
+therefore the fMRIPrep-mask workflow restored approximately:
+
+```text
+79.8%
+```
+
+of the previously missing voxels.
+
+The final adaptive mask:
+
+```text
+238262 voxels
+```
+
+was within:
+
+```text
+8110 voxels
+```
+
+of the Raw tedana adaptive mask.
+
+**Important observation**
+
+The fMRIPrep brain mask does **not** bypass tedana's adaptive signal-quality screening.
+
+The successful masked tedana run reported:
+
+```text
+8849 voxels in user-defined mask do not have good signal.
+Removing voxels from mask.
+```
+
+Therefore:
+
+```text
+fMRIPrep brain mask
+```
+
+defines the initial analysis boundary,
+
+while:
+
+```text
+tedana adaptive masking
+```
+
+still performs additional signal-quality screening before PCA, ICA, and component classification.
+
+For this dataset, the masked workflow produced substantially better brain coverage than the default RMT tedana run and was therefore adopted as the final processing pipeline.
+
 # 8. Compute tSNR
 
 Voxelwise tSNR is calculated as:
