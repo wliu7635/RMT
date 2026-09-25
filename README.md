@@ -262,193 +262,368 @@ In the tested OP implementation, Gaussian weighting is disabled and the whole-pa
 
 ## 3.3 Run Echo 1, Echo 2, and Echo 3 separately
 
-The tested workflow processed one echo at a time. The currently saved demo is the final Echo 3 configuration. For every echo, manually update all items listed below.
+### MATLAB files used in this step
+
+```text
+matlab/
+├── fmriDenoising_demo.m
+├── fmriDenoise_SSVD2.m
+├── estimate_noise_vst3.m
+├── perform_riceVST3.m
+├── denoise_ssvd.m
+├── ssvd.m
+├── perform_riceVST_EUI3.m
+├── MCSure.m
+└── dependencies/
+    ├── riceVST_sigmaEst.m
+    ├── riceVST.m
+    ├── riceVST_EUI.m
+    ├── squish.m
+    ├── gunziptemp.m
+    ├── load_untouch_nii.m
+    ├── make_nii.m
+    └── save_nii.m
+```
+
+The tested workflow processes one echo at a time.
+
+Before running each echo, manually update:
+
+1. The input echo path in `fmriDenoising_demo.m`.
+2. The echo-specific cache filenames in `fmriDenoise_SSVD2.m`.
+3. The final RMT and QC output filenames in `fmriDenoising_demo.m`.
+
+The currently saved examples show the final Echo 3 configuration. Echo 1 and Echo 2 use the same processing parameters. Only the echo-specific input, cache, and output names are changed.
+
+Do not reuse one echo's cache files for a different echo.
 
 ### Replace: ① to ⑦
 
+---
+
+### 3.3.1 File: `matlab/fmriDenoising_demo.m`
+
+Replace the input path, intermediate directory, and output filenames.
+
+The complete tested driver structure is shown below.
+
 ```matlab
+clear;
+close all;
+clc;
+
+% This driver runs magnitude-domain RMT denoising for one echo.
+%
+% Run this file separately for Echo 1, Echo 2, and Echo 3.
+%
+% Before each run, update:
+%   ① input echo NIfTI
+%   ② intermediate/output directory
+%   ⑥ final RMT output filename
+%   ⑦ sigma, rank, and sigmaVST output filenames
+%
+% The cache filenames inside fmriDenoise_SSVD2.m must also be
+% changed to the same echo number before each run.
+
+%% Load EPI data
+
 % ① Input echo NIfTI
-% Echo 1 example:
-epifilenames = { ...
-    'D:\MEICA\MECIA TEST 7T\sub-01\func\sub-01_task-rest_echo-1_bold.nii' ...
+%
+% Echo 1:
+% epifilenames = {
+%     'D:\MEICA\MECIA TEST 7T\sub-01\func\sub-01_task-rest_echo-1_bold.nii'
+% };
+%
+% Echo 2:
+% epifilenames = {
+%     'D:\MEICA\MECIA TEST 7T\sub-01\func\sub-01_task-rest_echo-2_bold.nii'
+% };
+%
+% Echo 3:
+epifilenames = {
+    'D:\MEICA\MECIA TEST 7T\sub-01\func\sub-01_task-rest_echo-3_bold.nii'
 };
 
-% ② Intermediate/output directory
-epiIntermPath = repmat({'D:\RMT\test result'}, 1, nData);
+nData = length(epifilenames);
 
-% Inside fmriDenoise_SSVD2.m, use echo-specific cache names:
-% ③ sigma-VST cache
-echo1_sigmaVST_cache.mat
+% ② Intermediate and output directory
+epiIntermPath = repmat( ...
+    {'D:\RMT\test result'}, ...
+    1, ...
+    nData);
 
-% ④ forward-VST cache
-echo1_forwardVST_cache.mat
+if ~exist('D:\RMT\test result', 'dir')
+    mkdir('D:\RMT\test result');
+end
 
-% ⑤ OP-SSVD cache
-echo1_OPSSVD_cache.mat
+fprintf('Loading functional data...\n');
 
-% In fmriDenoising_demo.m, use matching output names:
-% ⑥ final RMT output
+epis = cell(1, nData);
+
+for p = 1:nData
+
+    nii = load_untouch_nii( ...
+        gunziptemp(epifilenames{p}));
+
+    % Apply one global scale factor only if the data exceed the
+    % signed 16-bit integer range.
+    if min(nii.img(:)) < intmin('int16') || ...
+            max(nii.img(:)) > intmax('int16')
+
+        scaleFactor = ceil( ...
+            max(nii.img(:)) / ...
+            double(intmax('int16')));
+
+        epis{p} = nii.img ./ scaleFactor;
+
+        fprintf( ...
+            'Applied global scale factor: %g\n', ...
+            scaleFactor);
+    else
+        epis{p} = nii.img;
+        scaleFactor = 1;
+
+        fprintf( ...
+            'No intensity scaling was required.\n');
+    end
+
+    if p == 1
+        episize = nii.hdr.dime.pixdim(2:4);
+        epidim = nii.hdr.dime.dim(2:5);
+        epitr = 2.1;
+    end
+end
+
+fprintf('Done loading EPI data.\n');
+
+%% RMT denoising parameters
+
+fprintf('Denoising raw data...\n');
+
+% Noise-estimation and VST spatial kernel
+ks = [7 7 3];
+
+% OP-SSVD spatial patch window
+ws = [7 7 3];
+
+% Tested RMT configuration:
+%
+% VST_ABC             = 'A'
+% wantGaussWeighting  = 0
+% wantRankWeighting   = 1
+% wantVST             = 1
+% k0                  = 1:10
+%
+% The current OP implementation always uses whole-patch
+% 1/(1 + estimated rank) weighting.
+
+[epis_vstssvd, ...
+ rank_vstssvd, ...
+ sigma_vstssvd, ...
+ sigmaVST] = ...
+    cellfun( ...
+        @(x) fmriDenoise_SSVD2( ...
+            x, ...
+            ks, ...
+            ws, ...
+            'A', ...
+            0, ...
+            1, ...
+            1, ...
+            1:10), ...
+        epis, ...
+        'UniformOutput', ...
+        0);
+
+%% Save the RMT outputs
+
+% IMPORTANT:
+%
+% Change all filenames below to match the echo being processed.
+%
+% Echo 1:
+%   echo1_RMT_OP.nii
+%   echo1_sigma.nii
+%   echo1_rank.nii
+%   echo1_sigmaVST.nii
+%
+% Echo 2:
+%   echo2_RMT_OP.nii
+%   echo2_sigma.nii
+%   echo2_rank.nii
+%   echo2_sigmaVST.nii
+%
+% Echo 3:
+%   echo3_RMT_OP.nii
+%   echo3_sigma.nii
+%   echo3_rank.nii
+%   echo3_sigmaVST.nii
+
+% ⑥ Final RMT-denoised 4D output
+cellfun( ...
+    @(x, y) save_nii( ...
+        make_nii(x, episize), ...
+        fullfile(y, 'echo3_RMT_OP.nii')), ...
+    epis_vstssvd, ...
+    epiIntermPath, ...
+    'UniformOutput', ...
+    0);
+
+% ⑦ OP-SSVD noise-estimate output
+cellfun( ...
+    @(x, y) save_nii( ...
+        make_nii(x, episize), ...
+        fullfile(y, 'echo3_sigma.nii')), ...
+    sigma_vstssvd, ...
+    epiIntermPath, ...
+    'UniformOutput', ...
+    0);
+
+% ⑦ OP-SSVD patch-rank output
+cellfun( ...
+    @(x, y) save_nii( ...
+        make_nii(x, episize), ...
+        fullfile(y, 'echo3_rank.nii')), ...
+    rank_vstssvd, ...
+    epiIntermPath, ...
+    'UniformOutput', ...
+    0);
+
+% ⑦ Spatial Rician-noise map used by the VST
+cellfun( ...
+    @(x, y) save_nii( ...
+        make_nii(x, episize), ...
+        fullfile(y, 'echo3_sigmaVST.nii')), ...
+    sigmaVST, ...
+    epiIntermPath, ...
+    'UniformOutput', ...
+    0);
+
+fprintf('RMT denoising and output writing completed.\n');
+```
+
+### Echo-specific replacements in `fmriDenoising_demo.m`
+
+#### Echo 1
+
+```matlab
+epifilenames = {
+    'D:\MEICA\MECIA TEST 7T\sub-01\func\sub-01_task-rest_echo-1_bold.nii'
+};
+```
+
+Use these output filenames:
+
+```text
 echo1_RMT_OP.nii
-
-% ⑦ QC outputs
 echo1_sigma.nii
 echo1_rank.nii
 echo1_sigmaVST.nii
 ```
 
-Repeat exactly the same processing for Echo 2 and Echo 3, changing only the echo-specific input, cache, and output names:
+#### Echo 2
+
+```matlab
+epifilenames = {
+    'D:\MEICA\MECIA TEST 7T\sub-01\func\sub-01_task-rest_echo-2_bold.nii'
+};
+```
+
+Use these output filenames:
 
 ```text
-Echo 1:
-    echo1_sigmaVST_cache.mat
-    echo1_forwardVST_cache.mat
-    echo1_OPSSVD_cache.mat
-    echo1_RMT_OP.nii
-    echo1_sigma.nii
-    echo1_rank.nii
-    echo1_sigmaVST.nii
-
-Echo 2:
-    echo2_sigmaVST_cache.mat
-    echo2_forwardVST_cache.mat
-    echo2_OPSSVD_cache.mat
-    echo2_RMT_OP.nii
-    echo2_sigma.nii
-    echo2_rank.nii
-    echo2_sigmaVST.nii
-
-Echo 3:
-    echo3_sigmaVST_cache.mat
-    echo3_forwardVST_cache.mat
-    echo3_OPSSVD_cache.mat
-    echo3_RMT_OP.nii
-    echo3_sigma.nii
-    echo3_rank.nii
-    echo3_sigmaVST.nii
+echo2_RMT_OP.nii
+echo2_sigma.nii
+echo2_rank.nii
+echo2_sigmaVST.nii
 ```
 
-Do not reuse one echo's cache for another echo.
-
-## 3.4 Input loading and deterministic rescaling
-
-The tested demo loaded the input with:
+#### Echo 3
 
 ```matlab
-nii = load_untouch_nii(gunziptemp(epifilenames{p}));
+epifilenames = {
+    'D:\MEICA\MECIA TEST 7T\sub-01\func\sub-01_task-rest_echo-3_bold.nii'
+};
 ```
 
-If the image range exceeded signed 16-bit limits, the entire 4D series was divided by a single deterministic scale factor:
-
-```matlab
-if min(nii.img(:)) < intmin('int16') || ...
-        max(nii.img(:)) > intmax('int16')
-
-    epis{p} = nii.img / ...
-        ceil(max(nii.img(:)) / double(intmax('int16')));
-else
-    epis{p} = nii.img;
-end
-```
-
-Because the same constant is applied to the whole 4D series, this global scaling does not change the theoretical voxelwise mean-to-standard-deviation ratio used for tSNR. Record the scale factor if absolute signal, S0, or sigma values will be compared.
-
-## 3.5 Spatial Rician-noise estimation
-
-`estimate_noise_vst3.m` is a low-memory serial implementation. It:
-
-1. Processes one overlapping spatial patch at a time.
-2. Preserves the original sliding-window positions.
-3. Calls `riceVST_sigmaEst` for each patch.
-4. Accumulates each scalar patch estimate across covered voxels.
-5. Averages all overlapping estimates.
-6. Returns a spatial `sigmaVST` map.
-
-The tested code used VST estimator B for this stage:
-
-```matlab
-sigmaVST = estimate_noise_vst3(epi_noisy, ks, 'B');
-```
-
-## 3.6 Forward Rice VST
-
-`perform_riceVST3.m`:
-
-1. Uses the same overlapping spatial kernel.
-2. Computes the mean local sigma within each patch.
-3. Calls `riceVST` using the patch-level sigma.
-4. Accumulates overlapping transformed patches.
-5. Divides by a 3D overlap-count map.
-6. Stores the 4D accumulator in single precision to reduce memory.
-
-For the tested run:
-
-```matlab
-imgRaw = perform_riceVST3( ...
-    epi_noisy, ...
-    sigmaVST, ...
-    [7 7 3], ...
-    'A');
-```
-
-## 3.7 OP-SSVD RMT denoising
-
-For each `[7 7 3] x time` patch, `denoise_ssvd.m` calls:
-
-```matlab
-[Ysp, Rp, Sigmap] = ssvd( ...
-    double(B1), ...
-    'op', ...
-    'ssvd', ...
-    1:10);
-```
-
-This combines:
+Use these output filenames:
 
 ```text
-Multiple-criteria SSVD rank/noise estimation
-+
-Operator-norm optimal singular-value shrinkage
+echo3_RMT_OP.nii
+echo3_sigma.nii
+echo3_rank.nii
+echo3_sigmaVST.nii
 ```
 
-The reconstructed patch receives the scalar overlap weight:
+---
 
-```matlab
-patchScalarWeight = 1 / (1 + Rp);
-```
+### 3.3.2 File: `matlab/fmriDenoise_SSVD2.m`
 
-The final denoised image is the weighted sum of overlapping reconstructed patches divided by the accumulated positive patch weights.
-
-## 3.8 Exact unbiased inverse Rice VST
-
-`perform_riceVST_EUI3.m`:
-
-1. Processes one overlapping patch at a time.
-2. Computes the patch-level mean sigma.
-3. Calls `riceVST_EUI`.
-4. Averages overlapping inverse estimates.
-5. Sets negative magnitude values to zero.
-
-The final RMT result is therefore returned to magnitude-domain image units.
-
-## 3.9 RMT output files
-
-For each echo, the tested demo writes:
+This file controls:
 
 ```text
-echoN_RMT_OP.nii
-    final denoised 4D magnitude series
-
-echoN_sigma.nii
-    patch-level OP-SSVD noise estimates stored at patch-start coordinates
-
-echoN_rank.nii
-    patch-level rank estimates stored at patch-start coordinates
-
-echoN_sigmaVST.nii
-    spatial Rician noise map used for VST
+Rician noise estimation
+Forward Rice VST
+OP-SSVD denoising
+Exact unbiased inverse Rice VST
+Intermediate cache loading and saving
 ```
 
-`rank.nii` and `sigma.nii` should not be interpreted as dense independent voxelwise estimates. The current implementation stores patch-level values at patch starting positions.
+The full implementation must be placed in:
+
+```text
+matlab/fmriDenoise_SSVD2.m
+```
+
+Before each echo run, replace the three cache filenames shown below.
+
+```matlab
+%% Rician noise-estimation cache
+
+% ③ Change this filename to match the echo being processed.
+%
+% Echo 1:
+% echo1_sigmaVST_cache.mat
+%
+% Echo 2:
+% echo2_sigmaVST_cache.mat
+%
+% Echo 3:
+% echo3_sigmaVST_cache.mat
+
+sigmaCacheFile = ...
+    'D:\RMT\test result\echo3_sigmaVST_cache.mat';
+
+
+%% Forward-VST cache
+
+% ④ Change this filename to match the echo being processed.
+%
+% Echo 1:
+% echo1_forwardVST_cache.mat
+%
+% Echo 2:
+% echo2_forwardVST_cache.mat
+%
+% Echo 3:
+% echo3_forwardVST_cache.mat
+
+vstCacheFile = ...
+    'D:\RMT\test result\echo3_forwardVST_cache.mat';
+
+
+%% OP-SSVD cache
+
+% ⑤ Change this filename to match the echo being processed.
+%
+% Echo 1:
+% echo1_OPSSVD_cache.mat
+%
+% Echo 2:
+% echo2_OPSSVD_cache.mat
+%
+% Echo 3:
+% echo3_OPSSVD_cache.mat
 
 # 4. Restore the NIfTI header
 
