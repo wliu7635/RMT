@@ -1698,7 +1698,7 @@ This showed a loss of:
 40206 voxels
 ```
 
-relative to the Raw tedana adaptive mask. 【1-ec53f8】
+relative to the Raw tedana adaptive mask. 
 
 ---
 
@@ -1750,8 +1750,6 @@ python scripts\check_mask_size.py
 ```text
 voxels = 238262
 ```
-
-【2-b13940】
 
 ---
 
