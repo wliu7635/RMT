@@ -96,6 +96,8 @@ Before running the workflow, replace the numbered items used throughout this REA
 ⑳  Final tedana output directory
 ㉑  Final masked-tedana directory used for tSNR
 ㉒  tSNR output directory
+㉓ Raw tedana output directory
+㉔ Initial RMT tedana output directory
 ```
 
 # 1. Environment and setup
